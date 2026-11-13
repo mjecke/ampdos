@@ -15,7 +15,7 @@ See COMMANDS.MD for comprehensive documentation of what all ampDOS can do.
 
 Booting on a real AMPRO LittleBoard Plus attached to a serial terminal console:
 
-<video src="https://github.com/user-attachments/assets/92d6fe19-a442-4a1a-ad2d-e5bf37487517" width="70%"></video>
+<video src="https://github.com/mjecke/ampdos/blob/fa6d676ac6a237261160352142afb158fac2bca7/booting_vid.mp4"></video>
 
 ## Try it
 
