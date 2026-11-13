@@ -14,9 +14,9 @@ and new programs on the real hardware.
 See COMMANDS.MD for comprehensive documentation of what all ampDOS can do.
 
 Booting on a real AMPRO LittleBoard Plus attached to a serial terminal console:
-<p align="center" width="100%">
-<video src="https://github.com/user-attachments/assets/92d6fe19-a442-4a1a-ad2d-e5bf37487517" width="70%" controls></video>
-</p>
+
+<video src="https://github.com/user-attachments/assets/92d6fe19-a442-4a1a-ad2d-e5bf37487517" width="70%"></video>
+
 ## Try it
 
 You need:
