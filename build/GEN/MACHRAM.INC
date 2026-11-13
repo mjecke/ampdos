@@ -1,0 +1,1 @@
+	include "KERNEL/MACHINE/AMPRO/MRAM.INC"

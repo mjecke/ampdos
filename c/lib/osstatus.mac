@@ -1,0 +1,24 @@
+; osstatus.mac - void os_status(int n): the program's exit status (0-255),
+; which a batch file sees as ERRORLEVEL.  uc80's exit(n) drops n, so
+; os_status(n); exit(0); is the way to end with a status from anywhere.
+; (Returning n from main sets it too, when n is not 0.)
+	.Z80
+	CSEG
+	PUBLIC	_os_status
+OS_STATUS EQU	0FF60H
+
+_os_status:
+	LD	HL,2
+	ADD	HL,SP
+	LD	A,(HL)
+	PUSH	BC
+	PUSH	DE
+	PUSH	IX
+	PUSH	IY
+	CALL	OS_STATUS
+	POP	IY
+	POP	IX
+	POP	DE
+	POP	BC
+	RET
+	END

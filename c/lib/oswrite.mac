@@ -1,0 +1,34 @@
+; oswrite.mac - void os_write(const char *buf, unsigned n): n bytes to the
+; screen as they are (no \n -> CR LF), straight to OS_PUTC.  Much faster
+; than printf or fputs, which take each character through the C library and
+; the BDOS stub: a whole screen built in memory goes out at the line's speed.
+	.Z80
+	CSEG
+	PUBLIC	_os_write
+OS_PUTC	EQU	0FF03H
+
+_os_write:
+	PUSH	IX
+	LD	IX,0
+	ADD	IX,SP
+	PUSH	BC
+	PUSH	DE
+	PUSH	IY
+	LD	L,(IX+4)		; HL = buf
+	LD	H,(IX+5)
+	LD	C,(IX+6)		; BC = n
+	LD	B,(IX+7)
+ow_1:	LD	A,B
+	OR	C
+	JR	Z,ow_2
+	LD	A,(HL)
+	CALL	OS_PUTC
+	INC	HL
+	DEC	BC
+	JR	ow_1
+ow_2:	POP	IY
+	POP	DE
+	POP	BC
+	POP	IX
+	RET
+	END

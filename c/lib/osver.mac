@@ -1,0 +1,35 @@
+; osver.mac - unsigned os_version(void): ampDOS's version, major * 256 +
+; minor (0.8.5: 0x0008); os_patch() is the third number (5).
+	.Z80
+	CSEG
+	PUBLIC	_os_version
+	PUBLIC	_os_patch
+OS_VERSION EQU	0FF48H
+
+_os_version:
+	CALL	ov_get
+	LD	HL,(ov_hl)
+	RET
+_os_patch:
+	CALL	ov_get
+	LD	A,(ov_a)
+	LD	L,A
+	LD	H,0
+	RET
+ov_get:	PUSH	BC
+	PUSH	DE
+	PUSH	IX
+	PUSH	IY
+	CALL	OS_VERSION
+	LD	(ov_hl),HL
+	LD	(ov_a),A
+	POP	IY
+	POP	IX
+	POP	DE
+	POP	BC
+	RET
+
+	DSEG
+ov_hl:	DW	0
+ov_a:	DB	0
+	END

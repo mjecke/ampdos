@@ -1,0 +1,447 @@
+@ECHO OFF
+REM TESTALL.BAT - ampDOS hardware test.  usage: TESTALL [-] [words]
+REM   (the arguments are only echoed back).  Drive B is not used.
+REM Every check prints ok: or FAIL: with its number.  Each FAIL also leaves
+REM a file A:\FAILS\Fnn.TXT; at the end TESTEND lists that directory.
+REM look: lines are for your eyes (nothing to check by itself).
+IF EXIST \FAILS DELTREE /Y \FAILS
+MD \FAILS
+IF EXIST \TST DELTREE /Y \TST
+ECHO ===== ampDOS test: %0 %1 %2 %3 %4 =====
+VER
+ECHO ----- 1. echo, remarks, percent signs
+ECHO ON
+ECHO look: this line was shown first (ECHO ON)
+@ECHO look: this line was not shown first (@)
+ECHO OFF
+REM a remark: nothing happens
+ECHO look: 100%% printed as one percent sign
+ECHO look: an empty argument shows as nothing: [%9]
+ECHO ----- 2. status: TRUE, FALSE, IF ERRORLEVEL
+TRUE
+IF NOT ERRORLEVEL 1 ECHO ok: 01 TRUE succeeds
+IF ERRORLEVEL 1 ECHO FAIL: 01 TRUE left a failure
+IF ERRORLEVEL 1 TOUCH \FAILS\F01.TXT
+FALSE
+IF ERRORLEVEL 1 ECHO ok: 02 FALSE fails
+IF NOT ERRORLEVEL 1 ECHO FAIL: 02 FALSE left success
+IF NOT ERRORLEVEL 1 TOUCH \FAILS\F02.TXT
+NOSUCHCMD
+IF ERRORLEVEL 1 ECHO ok: 03 an unknown command fails (message above)
+IF NOT ERRORLEVEL 1 ECHO FAIL: 03 an unknown command succeeded
+IF NOT ERRORLEVEL 1 TOUCH \FAILS\F03.TXT
+TYPE NOSUCH.TXT
+IF ERRORLEVEL 1 ECHO ok: 04 TYPE of a missing file fails
+IF NOT ERRORLEVEL 1 ECHO FAIL: 04 TYPE of a missing file succeeded
+IF NOT ERRORLEVEL 1 TOUCH \FAILS\F04.TXT
+IF ERRORLEVEL 0 ECHO ok: 05 ERRORLEVEL 0 is always true
+IF NOT ERRORLEVEL 0 ECHO FAIL: 05 ERRORLEVEL 0 is always true
+IF NOT ERRORLEVEL 0 TOUCH \FAILS\F05.TXT
+ECHO ----- 3. IF == and NOT
+IF abc==ABC ECHO ok: 06 == ignores case
+IF NOT abc==ABC ECHO FAIL: 06 == ignores case
+IF NOT abc==ABC TOUCH \FAILS\F06.TXT
+IF NOT abc==abd ECHO ok: 07 NOT with ==
+IF abc==abd ECHO FAIL: 07 NOT with ==
+IF abc==abd TOUCH \FAILS\F07.TXT
+IF "%9"=="" ECHO ok: 08 an empty argument compares with ""
+IF NOT "%9"=="" ECHO FAIL: 08 an empty argument compares with ""
+IF NOT "%9"=="" TOUCH \FAILS\F08.TXT
+ECHO ----- 4. directories and files (in A:\TST)
+MD TST
+IF EXIST TST ECHO ok: 09 MD TST (IF EXIST sees directories)
+IF NOT EXIST TST ECHO FAIL: 09 MD TST (IF EXIST sees directories)
+IF NOT EXIST TST TOUCH \FAILS\F09.TXT
+CD TST
+PWD
+TOUCH EMPTY.TXT
+IF EXIST EMPTY.TXT ECHO ok: 10 TOUCH made EMPTY.TXT
+IF NOT EXIST EMPTY.TXT ECHO FAIL: 10 TOUCH made EMPTY.TXT
+IF NOT EXIST EMPTY.TXT TOUCH \FAILS\F10.TXT
+COPY \TESTALL.BAT COPY1.TXT
+IF NOT ERRORLEVEL 1 ECHO ok: 11 COPY
+IF ERRORLEVEL 1 ECHO FAIL: 11 COPY
+IF ERRORLEVEL 1 TOUCH \FAILS\F11.TXT
+MV COPY1.TXT COPY2.TXT
+IF EXIST COPY2.TXT ECHO ok: 12 MV made COPY2.TXT
+IF NOT EXIST COPY2.TXT ECHO FAIL: 12 MV made COPY2.TXT
+IF NOT EXIST COPY2.TXT TOUCH \FAILS\F12.TXT
+IF NOT EXIST COPY1.TXT ECHO ok: 13 MV left no COPY1.TXT
+IF EXIST COPY1.TXT ECHO FAIL: 13 MV left no COPY1.TXT
+IF EXIST COPY1.TXT TOUCH \FAILS\F13.TXT
+WC COPY2.TXT \TESTALL.BAT EMPTY.TXT
+ECHO look: the first two WC lines must be the same
+COPY \TESTBAS.BAS SMALL.TXT
+DUMP SMALL.TXT
+TYPE SMALL.TXT
+MD SUB
+COPY SMALL.TXT SUB
+IF EXIST SUB\SMALL.TXT ECHO ok: 14 COPY into a directory
+IF NOT EXIST SUB\SMALL.TXT ECHO FAIL: 14 COPY into a directory
+IF NOT EXIST SUB\SMALL.TXT TOUCH \FAILS\F14.TXT
+DIR
+DIR SUB
+CD SUB
+PWD
+CD ..
+PWD
+DEL SUB\SMALL.TXT
+IF NOT EXIST SUB\SMALL.TXT ECHO ok: 15 DEL
+IF EXIST SUB\SMALL.TXT ECHO FAIL: 15 DEL
+IF EXIST SUB\SMALL.TXT TOUCH \FAILS\F15.TXT
+RD SUB
+IF NOT EXIST SUB ECHO ok: 16 RD
+IF EXIST SUB ECHO FAIL: 16 RD
+IF EXIST SUB TOUCH \FAILS\F16.TXT
+DIR
+ECHO ----- 5. GOTO backwards (round once, using a flag file)
+:again
+IF EXIST FLAG.TXT GOTO pastloop
+ECHO look: first time round
+TOUCH FLAG.TXT
+GOTO again
+ECHO FAIL: 17 GOTO did not jump
+TOUCH \FAILS\F17.TXT
+:pastloop
+ECHO ok: 17 GOTO came back round and left the loop
+CD \
+ECHO ----- 6. board: ID, memory, timing
+ECHO look: the ID jumpers, in hex, then in binary:
+ID
+ID B
+MEM
+ECHO SLEEP 0.25, .5 and 1.892, then 10 seconds: time that one with a watch
+SLEEP 0.25
+SLEEP .5
+SLEEP 1.892
+IF NOT ERRORLEVEL 1 ECHO ok: 18 SLEEP 1.892
+IF ERRORLEVEL 1 ECHO FAIL: 18 SLEEP 1.892
+IF ERRORLEVEL 1 TOUCH \FAILS\F18.TXT
+ECHO ...10 seconds from NOW
+SLEEP 10
+ECHO ...stop the watch
+SLEEP x
+IF ERRORLEVEL 1 ECHO ok: 19 SLEEP x is refused
+IF NOT ERRORLEVEL 1 ECHO FAIL: 19 SLEEP x is refused
+IF NOT ERRORLEVEL 1 TOUCH \FAILS\F19.TXT
+ECHO ----- 7. GO (0038 is a RET)
+GO 0038
+IF NOT ERRORLEVEL 1 ECHO ok: 20 GO 0038 came back
+IF ERRORLEVEL 1 ECHO FAIL: 20 GO 0038 came back
+IF ERRORLEVEL 1 TOUCH \FAILS\F20.TXT
+GO 12
+IF ERRORLEVEL 1 ECHO ok: 21 GO 12 is refused
+IF NOT ERRORLEVEL 1 ECHO FAIL: 21 GO 12 is refused
+IF NOT ERRORLEVEL 1 TOUCH \FAILS\F21.TXT
+ECHO ----- 8. BASIC (BASIC.BIN here or in A:\BIN, and TESTBAS.BAS)
+BASIC TESTBAS
+IF NOT ERRORLEVEL 1 ECHO ok: 22 back in the batch file after BASIC
+IF ERRORLEVEL 1 ECHO FAIL: 22 BASIC did not run (no BASIC.BIN?)
+IF ERRORLEVEL 1 TOUCH \FAILS\F22.TXT
+ECHO ----- 9. DELTREE
+MD TST\DEEP
+MD TST\DEEP\ER
+COPY TESTEND.BAT TST\DEEP\ER
+DELTREE /Y TST
+IF NOT ERRORLEVEL 1 ECHO ok: 23 DELTREE ran
+IF ERRORLEVEL 1 ECHO FAIL: 23 DELTREE ran
+IF ERRORLEVEL 1 TOUCH \FAILS\F23.TXT
+IF NOT EXIST TST ECHO ok: 24 TST and all in it are gone
+IF EXIST TST ECHO FAIL: 24 TST and all in it are gone
+IF EXIST TST TOUCH \FAILS\F24.TXT
+DIR
+HELP
+ECHO ----- 10. arguments and SHIFT
+ECHO args: 0=%0 1=%1 2=%2 3=%3 4=%4
+:argloop
+IF "%2"=="" GOTO argsdone
+ECHO   extra word: %2
+SHIFT
+GOTO argloop
+:argsdone
+ECHO ok: 25 the SHIFT loop is done
+ECHO ----- 11. 0.7: wildcards, PATH, exit status, PEEK and POKE, LABEL, CHKDSK
+IF EXIST \W7 DELTREE /Y \W7
+MD \W7
+MD \W7\SUB
+COPY TESTEND.BAT \W7\A1.TMP
+COPY TESTEND.BAT \W7\A2.TMP
+COPY TESTEND.BAT \W7\B1.TXT
+DIR \W7\*.TMP
+IF NOT ERRORLEVEL 1 ECHO ok: 28 DIR *.TMP (look: only A1, A2)
+IF ERRORLEVEL 1 ECHO FAIL: 28 DIR *.TMP (look: only A1, A2)
+IF ERRORLEVEL 1 TOUCH \FAILS\F28.TXT
+COPY \W7\*.TMP \W7\SUB
+IF EXIST \W7\SUB\A2.TMP ECHO ok: 29 COPY *.TMP into a directory
+IF NOT EXIST \W7\SUB\A2.TMP ECHO FAIL: 29 COPY *.TMP into a directory
+IF NOT EXIST \W7\SUB\A2.TMP TOUCH \FAILS\F29.TXT
+DEL \W7\*.TMP
+IF NOT EXIST \W7\A1.TMP ECHO ok: 30 DEL *.TMP deleted A1.TMP
+IF EXIST \W7\A1.TMP ECHO FAIL: 30 DEL *.TMP deleted A1.TMP
+IF EXIST \W7\A1.TMP TOUCH \FAILS\F30.TXT
+IF EXIST \W7\B1.TXT ECHO ok: 31 DEL *.TMP left B1.TXT alone
+IF NOT EXIST \W7\B1.TXT ECHO FAIL: 31 DEL *.TMP left B1.TXT alone
+IF NOT EXIST \W7\B1.TXT TOUCH \FAILS\F31.TXT
+DEL \W7\*.ZZZ
+IF ERRORLEVEL 1 ECHO ok: 32 DEL of no matching file fails
+IF NOT ERRORLEVEL 1 ECHO FAIL: 32 DEL of no matching file fails
+IF NOT ERRORLEVEL 1 TOUCH \FAILS\F32.TXT
+ECHO look: PATH as it is (A:\BIN at start):
+PATH
+COPY \HELLO.BIN \W7\SUB\PT.BIN
+PATH \W7\SUB;A:\BIN
+PT from the PATH
+IF NOT ERRORLEVEL 1 ECHO ok: 33 PT.BIN found in the PATH (needs \HELLO.BIN)
+IF ERRORLEVEL 1 ECHO FAIL: 33 PT.BIN found in the PATH (needs \HELLO.BIN)
+IF ERRORLEVEL 1 TOUCH \FAILS\F33.TXT
+PATH ;
+PT
+IF ERRORLEVEL 1 ECHO ok: 34 with no PATH, PT is not found
+IF NOT ERRORLEVEL 1 ECHO FAIL: 34 with no PATH, PT is not found
+IF NOT ERRORLEVEL 1 TOUCH \FAILS\F34.TXT
+PATH A:\BIN
+POKE 9000 3E 05 CD 60 FF C9
+ECHO look: 3E 05 CD 60 FF C9 below
+PEEK 9000 6
+GO 9000
+IF ERRORLEVEL 5 ECHO ok: 35 exit status 5 (OS_STATUS, POKE, GO)
+IF NOT ERRORLEVEL 5 ECHO FAIL: 35 exit status 5 (OS_STATUS, POKE, GO)
+IF NOT ERRORLEVEL 5 TOUCH \FAILS\F35.TXT
+IF NOT ERRORLEVEL 6 ECHO ok: 36 the exit status 5 is not 6 or more
+IF ERRORLEVEL 6 ECHO FAIL: 36 the exit status 5 is not 6 or more
+IF ERRORLEVEL 6 TOUCH \FAILS\F36.TXT
+PEEK 12345
+IF ERRORLEVEL 1 ECHO ok: 37 PEEK 12345 is refused
+IF NOT ERRORLEVEL 1 ECHO FAIL: 37 PEEK 12345 is refused
+IF NOT ERRORLEVEL 1 TOUCH \FAILS\F37.TXT
+ECHO look: IN 29 shows the ID jumpers, as ID does:
+IN 29
+ID
+LABEL AMPDOS TEST
+IF NOT ERRORLEVEL 1 ECHO ok: 38 LABEL set (look: AMPDOS TEST below)
+IF ERRORLEVEL 1 ECHO FAIL: 38 LABEL set (look: AMPDOS TEST below)
+IF ERRORLEVEL 1 TOUCH \FAILS\F38.TXT
+VOL
+LABEL /D
+IF NOT ERRORLEVEL 1 ECHO ok: 39 LABEL /D (look: no label below)
+IF ERRORLEVEL 1 ECHO FAIL: 39 LABEL /D (look: no label below)
+IF ERRORLEVEL 1 TOUCH \FAILS\F39.TXT
+VOL
+ECHO ----- 11b. CMP, FIND, SORT, MORE, CRC
+COPY \W7\B1.TXT \W7\B2.TXT
+CMP \W7\B1.TXT \W7\B2.TXT
+IF NOT ERRORLEVEL 1 ECHO ok: 41 CMP of two copies finds them identical
+IF ERRORLEVEL 1 ECHO FAIL: 41 CMP of two copies finds them identical
+IF ERRORLEVEL 1 TOUCH \FAILS\F41.TXT
+CMP \W7\B1.TXT \HELLO.BIN
+IF ERRORLEVEL 1 ECHO ok: 42 CMP of different files fails (look: differences above)
+IF NOT ERRORLEVEL 1 ECHO FAIL: 42 CMP of different files fails
+IF NOT ERRORLEVEL 1 TOUCH \FAILS\F42.TXT
+FIND "ECHO" \W7\B1.TXT
+IF NOT ERRORLEVEL 1 ECHO ok: 43 FIND found ECHO in the file (look: the lines above)
+IF ERRORLEVEL 1 ECHO FAIL: 43 FIND found ECHO in the file
+IF ERRORLEVEL 1 TOUCH \FAILS\F43.TXT
+FIND /I "no such line" \W7\B1.TXT
+IF ERRORLEVEL 1 ECHO ok: 44 FIND of a text that is not there fails
+IF NOT ERRORLEVEL 1 ECHO FAIL: 44 FIND of a text that is not there fails
+IF NOT ERRORLEVEL 1 TOUCH \FAILS\F44.TXT
+SORT \W7\B1.TXT \W7\S1.TXT
+SORT \W7\S1.TXT \W7\S2.TXT
+CMP \W7\S1.TXT \W7\S2.TXT
+IF NOT ERRORLEVEL 1 ECHO ok: 45 SORT: sorting a sorted file changes nothing
+IF ERRORLEVEL 1 ECHO FAIL: 45 SORT: sorting a sorted file changes nothing
+IF ERRORLEVEL 1 TOUCH \FAILS\F45.TXT
+MORE \W7\B1.TXT 100
+IF NOT ERRORLEVEL 1 ECHO ok: 46 MORE showed a file
+IF ERRORLEVEL 1 ECHO FAIL: 46 MORE showed a file
+IF ERRORLEVEL 1 TOUCH \FAILS\F46.TXT
+ECHO one line > \W7\R1.TXT
+FIND "one line" \W7\R1.TXT
+IF NOT ERRORLEVEL 1 ECHO ok: 47 output into a file
+IF ERRORLEVEL 1 ECHO FAIL: 47 output into a file
+IF ERRORLEVEL 1 TOUCH \FAILS\F47.TXT
+DIR \W7 >> \W7\R1.TXT
+FIND "R1       TXT" \W7\R1.TXT
+IF NOT ERRORLEVEL 1 FIND "one line" \W7\R1.TXT
+IF NOT ERRORLEVEL 1 ECHO ok: 48 output added to a file
+IF ERRORLEVEL 1 ECHO FAIL: 48 output added to a file
+IF ERRORLEVEL 1 TOUCH \FAILS\F48.TXT
+ECHO look: CRC of TESTEND.BAT (the PC says the same: crc32 TESTEND.BAT):
+CRC \W7\B1.TXT
+ECHO look: TERM, try it by hand (Ctrl-] ends it)
+ECHO ----- 11c. the utilities and SET (0.8.4), in \W7\U
+MD \W7\U
+ECHO a> \W7\U\L.TXT
+ECHO bb>> \W7\U\L.TXT
+ECHO ccc>> \W7\U\L.TXT
+ECHO dddd>> \W7\U\L.TXT
+ECHO a> \W7\U\H2.TXT
+ECHO bb>> \W7\U\H2.TXT
+ECHO ccc> \W7\U\T2.TXT
+ECHO dddd>> \W7\U\T2.TXT
+REM SET and %NAME%
+SET T1=alpha
+IF "%T1%"=="alpha" ECHO ok: 49 SET T1=alpha, then %T1% is alpha
+IF NOT "%T1%"=="alpha" ECHO FAIL: 49 SET T1=alpha, then %T1% is alpha
+IF NOT "%T1%"=="alpha" TOUCH \FAILS\F49.TXT
+SET T1=beta
+IF "%T1%"=="beta" ECHO ok: 50 SET again replaces the value
+IF NOT "%T1%"=="beta" ECHO FAIL: 50 SET again replaces the value
+IF NOT "%T1%"=="beta" TOUCH \FAILS\F50.TXT
+SET T1=
+IF "%T1%"=="" ECHO ok: 51 SET T1= forgets it
+IF NOT "%T1%"=="" ECHO FAIL: 51 SET T1= forgets it
+IF NOT "%T1%"=="" TOUCH \FAILS\F51.TXT
+SET F=\W7\U\L.TXT
+CMP %F% \W7\U\L.TXT
+IF NOT ERRORLEVEL 1 ECHO ok: 52 %F% inside a command line (CMP %F% ...)
+IF ERRORLEVEL 1 ECHO FAIL: 52 %F% inside a command line (CMP %F% ...)
+IF ERRORLEVEL 1 TOUCH \FAILS\F52.TXT
+SET BIG=0123456789012345678901234567890123456789012345678901234567890123
+IF ERRORLEVEL 1 ECHO ok: 53 SET beyond its 64 bytes is refused (message above)
+IF NOT ERRORLEVEL 1 ECHO FAIL: 53 SET beyond its 64 bytes is refused (message above)
+IF NOT ERRORLEVEL 1 TOUCH \FAILS\F53.TXT
+SET F=
+ECHO look: no variables left below:
+SET
+REM HEAD, TAIL, DIFF checking each other
+HEAD -2 \W7\U\L.TXT > \W7\U\H.TXT
+DIFF \W7\U\H.TXT \W7\U\H2.TXT
+IF NOT ERRORLEVEL 1 ECHO ok: 54 HEAD -2 gives the first two lines (DIFF says the same)
+IF ERRORLEVEL 1 ECHO FAIL: 54 HEAD -2 gives the first two lines (DIFF says the same)
+IF ERRORLEVEL 1 TOUCH \FAILS\F54.TXT
+TAIL -2 \W7\U\L.TXT > \W7\U\T.TXT
+DIFF \W7\U\T.TXT \W7\U\T2.TXT
+IF NOT ERRORLEVEL 1 ECHO ok: 55 TAIL -2 gives the last two lines (DIFF says the same)
+IF ERRORLEVEL 1 ECHO FAIL: 55 TAIL -2 gives the last two lines (DIFF says the same)
+IF ERRORLEVEL 1 TOUCH \FAILS\F55.TXT
+DIFF \W7\U\L.TXT \W7\U\H2.TXT > \W7\U\D.TXT
+IF ERRORLEVEL 1 ECHO ok: 56 DIFF of different files: status 1
+IF NOT ERRORLEVEL 1 ECHO FAIL: 56 DIFF of different files: status 1
+IF NOT ERRORLEVEL 1 TOUCH \FAILS\F56.TXT
+FIND "3,4d2" \W7\U\D.TXT
+IF NOT ERRORLEVEL 1 ECHO ok: 57 DIFF says 3,4d2 (lines 3-4 gone after line 2)
+IF ERRORLEVEL 1 ECHO FAIL: 57 DIFF says 3,4d2 (lines 3-4 gone after line 2)
+IF ERRORLEVEL 1 TOUCH \FAILS\F57.TXT
+DIFF \W7\U\L.TXT \W7\U\NOSUCH.TXT
+IF ERRORLEVEL 2 ECHO ok: 58 DIFF with a missing file: status 2 (message above)
+IF NOT ERRORLEVEL 2 ECHO FAIL: 58 DIFF with a missing file: status 2 (message above)
+IF NOT ERRORLEVEL 2 TOUCH \FAILS\F58.TXT
+REM TR: there and back again
+TR a-z A-Z \W7\U\L.TXT \W7\U\UP.TXT
+FIND "DDDD" \W7\U\UP.TXT
+IF NOT ERRORLEVEL 1 ECHO ok: 59 TR a-z A-Z made capitals
+IF ERRORLEVEL 1 ECHO FAIL: 59 TR a-z A-Z made capitals
+IF ERRORLEVEL 1 TOUCH \FAILS\F59.TXT
+TR A-Z a-z \W7\U\UP.TXT \W7\U\LO.TXT
+CMP \W7\U\L.TXT \W7\U\LO.TXT
+IF NOT ERRORLEVEL 1 ECHO ok: 60 TR A-Z a-z back again: the same bytes as before
+IF ERRORLEVEL 1 ECHO FAIL: 60 TR A-Z a-z back again: the same bytes as before
+IF ERRORLEVEL 1 TOUCH \FAILS\F60.TXT
+TR -d cd \W7\U\L.TXT \W7\U\NOCD.TXT
+FIND "c" \W7\U\NOCD.TXT
+IF ERRORLEVEL 1 ECHO ok: 61 TR -d cd left no c in the file
+IF NOT ERRORLEVEL 1 ECHO FAIL: 61 TR -d cd left no c in the file
+IF NOT ERRORLEVEL 1 TOUCH \FAILS\F61.TXT
+REM ATTRIB: read-only and hidden
+COPY \W7\U\L.TXT \W7\U\RO.TXT
+ATTRIB +R \W7\U\RO.TXT
+ECHO look: R---A  RO.TXT below
+ATTRIB \W7\U\RO.TXT
+DEL \W7\U\RO.TXT
+IF EXIST \W7\U\RO.TXT ECHO ok: 62 DEL refuses a read-only file (message above)
+IF NOT EXIST \W7\U\RO.TXT ECHO FAIL: 62 DEL refuses a read-only file (message above)
+IF NOT EXIST \W7\U\RO.TXT TOUCH \FAILS\F62.TXT
+COPY \W7\U\H.TXT \W7\U\RO.TXT
+CMP \W7\U\RO.TXT \W7\U\L.TXT
+IF NOT ERRORLEVEL 1 ECHO ok: 63 COPY over a read-only file left it as it was
+IF ERRORLEVEL 1 ECHO FAIL: 63 COPY over a read-only file left it as it was
+IF ERRORLEVEL 1 TOUCH \FAILS\F63.TXT
+ATTRIB -R \W7\U\RO.TXT
+DEL \W7\U\RO.TXT
+IF NOT EXIST \W7\U\RO.TXT ECHO ok: 64 after ATTRIB -R, DEL deletes it
+IF EXIST \W7\U\RO.TXT ECHO FAIL: 64 after ATTRIB -R, DEL deletes it
+IF EXIST \W7\U\RO.TXT TOUCH \FAILS\F64.TXT
+ATTRIB +H \W7\U\H.TXT
+DIR \W7\U > \W7\DIRH.TXT
+FIND "H        TXT" \W7\DIRH.TXT
+IF ERRORLEVEL 1 ECHO ok: 65 ATTRIB +H: DIR does not list H.TXT
+IF NOT ERRORLEVEL 1 ECHO FAIL: 65 ATTRIB +H: DIR does not list H.TXT
+IF NOT ERRORLEVEL 1 TOUCH \FAILS\F65.TXT
+ATTRIB -H \W7\U\H.TXT
+DIR \W7\U > \W7\DIRH.TXT
+FIND "H        TXT" \W7\DIRH.TXT
+IF NOT ERRORLEVEL 1 ECHO ok: 66 ATTRIB -H: DIR lists it again
+IF ERRORLEVEL 1 ECHO FAIL: 66 ATTRIB -H: DIR lists it again
+IF ERRORLEVEL 1 TOUCH \FAILS\F66.TXT
+REM XCOPY and TREE: a small tree, copied, compared
+MD \W7\U\A
+MD \W7\U\A\B
+COPY \W7\U\L.TXT \W7\U\A\B\DEEP.TXT
+XCOPY \W7\U\A \W7\U\Z
+CMP \W7\U\A\B\DEEP.TXT \W7\U\Z\B\DEEP.TXT
+IF NOT ERRORLEVEL 1 ECHO ok: 67 XCOPY copied a file two levels down
+IF ERRORLEVEL 1 ECHO FAIL: 67 XCOPY copied a file two levels down
+IF ERRORLEVEL 1 TOUCH \FAILS\F67.TXT
+TREE \W7\U > \W7\TREE.TXT
+TYPE \W7\TREE.TXT
+FIND "    B\" \W7\TREE.TXT
+IF NOT ERRORLEVEL 1 ECHO ok: 68 TREE shows B\ under A\ (look: the tree above)
+IF ERRORLEVEL 1 ECHO FAIL: 68 TREE shows B\ under A\ (look: the tree above)
+IF ERRORLEVEL 1 TOUCH \FAILS\F68.TXT
+XCOPY \W7\U \W7\U\INSIDE
+IF ERRORLEVEL 1 ECHO ok: 69 XCOPY into itself is refused
+IF NOT ERRORLEVEL 1 ECHO FAIL: 69 XCOPY into itself is refused
+IF NOT ERRORLEVEL 1 TOUCH \FAILS\F69.TXT
+REM UNDELETE: a file deleted, then brought back
+COPY \W7\U\L.TXT \W7\U\GONE.TXT
+DEL \W7\U\GONE.TXT
+ECHO look: ?ONE.TXT can be brought back, below
+UNDELETE \W7\U\
+UNDELETE \W7\U\GONE.TXT
+CMP \W7\U\GONE.TXT \W7\U\L.TXT
+IF NOT ERRORLEVEL 1 ECHO ok: 70 UNDELETE brought GONE.TXT back, the same bytes
+IF ERRORLEVEL 1 ECHO FAIL: 70 UNDELETE brought GONE.TXT back, the same bytes
+IF ERRORLEVEL 1 TOUCH \FAILS\F70.TXT
+UNDELETE \W7\U\NEVER.TXT
+IF ERRORLEVEL 1 ECHO ok: 71 UNDELETE of a file never deleted fails
+IF NOT ERRORLEVEL 1 ECHO FAIL: 71 UNDELETE of a file never deleted fails
+IF NOT ERRORLEVEL 1 TOUCH \FAILS\F71.TXT
+UNDELETE \W7\U\GONE.TXT
+IF ERRORLEVEL 1 ECHO ok: 72 UNDELETE when the file is there already fails
+IF NOT ERRORLEVEL 1 ECHO FAIL: 72 UNDELETE when the file is there already fails
+IF NOT ERRORLEVEL 1 TOUCH \FAILS\F72.TXT
+REM DISKCOMP needs two disks: only its usage here
+DISKCOMP C: D:
+IF ERRORLEVEL 1 ECHO ok: 73 DISKCOMP with no such drives fails (usage above)
+IF NOT ERRORLEVEL 1 ECHO FAIL: 73 DISKCOMP with no such drives fails (usage above)
+IF NOT ERRORLEVEL 1 TOUCH \FAILS\F73.TXT
+REM the utilities live in \BIN and are found from any directory by the PATH
+PATH A:\BIN
+CD \W7\U
+HEAD -1 L.TXT
+IF NOT ERRORLEVEL 1 ECHO ok: 74 HEAD runs from \W7\U (found in A:\BIN)
+IF ERRORLEVEL 1 ECHO FAIL: 74 HEAD runs from \W7\U (found in A:\BIN)
+IF ERRORLEVEL 1 TOUCH \FAILS\F74.TXT
+CD \
+REM DUMP is a program now (\BIN\DUMP.BIN): the text beside the hex
+ECHO Hello> \W7\H.TXT
+DUMP \W7\H.TXT > \W7\HD.TXT
+FIND "48 65 6C 6C 6F 0D 0A" \W7\HD.TXT
+IF NOT ERRORLEVEL 1 FIND "Hello.." \W7\HD.TXT
+IF NOT ERRORLEVEL 1 ECHO ok: 75 DUMP shows the bytes and their text
+IF ERRORLEVEL 1 ECHO FAIL: 75 DUMP shows the bytes and their text
+IF ERRORLEVEL 1 TOUCH \FAILS\F75.TXT
+ECHO look: DISKCOMP A: B:, EDIT (R, C, M, T), DISKED, HEXED, DEFRAG: try them by hand
+DELTREE /Y \W7
+CHKDSK
+IF NOT ERRORLEVEL 1 ECHO ok: 40 CHKDSK found no problems
+IF ERRORLEVEL 1 ECHO FAIL: 40 CHKDSK found no problems
+IF ERRORLEVEL 1 TOUCH \FAILS\F40.TXT
+ECHO look: the lines you typed (batch file lines are not kept):
+HISTORY
+ECHO ----- 12. PAUSE, then the chain to TESTEND (it takes this file's place)
+PAUSE
+TESTEND
+ECHO FAIL: 26 the chain to TESTEND did not happen
+TOUCH \FAILS\F26.TXT

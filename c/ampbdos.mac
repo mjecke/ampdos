@@ -1,0 +1,745 @@
+; ampbdos.mac - the CP/M BDOS functions uc80's C library calls, done with
+; ampDOS calls.  ampcrt0.mac puts JP __bdos where CALL 5 gets to.
+;
+; The console:
+;   1  a key, echoed (Return as CR LF) -> A        2  E to the screen     9  DE up to '$'
+;   11 A = FFh if a key is waiting
+; Files (C's fopen, fgetc, fputc, fseek, remove, rename ...):
+;   15 open   16 close   19 delete   22 make   23 rename   26 set DMA
+;   33 read record   34 write record   35 file size in records
+; Anything else answers A = FFh.
+; Assembled with FILES = 0 (um80 -D FILES=0) it is the console alone, and
+; every file function fails: ampcc.sh does that for a program that has no
+; fopen, remove or rename (about 1.2 KB less).
+;
+; The library works the CP/M way: a file is 128-byte records, read and
+; written by number (r0 r1 of the FCB), and the last one is padded with
+; Ctrl-Z (1Ah).  ampDOS reads a file in order and writes only a new file,
+; at its end.  So here:
+;   - Reading a record: the next one is an OS_READ of 128 bytes (padded with
+;     1Ah after the end).  A later one is read up to; an earlier one starts
+;     the file again (the FCB's position goes back to 0).
+;   - Writing: the record last written is kept here and goes to the disk
+;     when another record is written, or at the close; the library writes
+;     the same record again as it fills it.  At the close the 1Ah padding
+;     of the last record is left out, so the file has its real size (a
+;     binary file whose last bytes really are 1Ah loses them, as on CP/M).
+;   - Writing to a file that was opened, not made ("a", "r+"): a new file,
+;     AMPCTMPn.TMP, is written instead, with the old file's records before
+;     and after the ones written copied into it; at the close the old file
+;     is deleted and the new one gets its name.  Records can only be
+;     written in order there (the library does that), and a record already
+;     written cannot be read again before the close.
+;   - All the open files are on one drive, in its current directory (an
+;     FCB has no room for a path): opening one on another drive while
+;     others are open fails.  4 files at most.
+;
+; The memory, F800-FBFC (ampcrt0 zeroes it, the stack is below it):
+	.Z80
+	CSEG
+	PUBLIC	__bdos
+
+	IFNDEF	FILES
+FILES	EQU	1
+	ENDIF
+
+OS_PUTC	EQU	0FF03H
+OS_GETC	EQU	0FF06H
+OS_KBHIT EQU	0FF09H
+OS_OPEN	EQU	0FF21H
+OS_READ	EQU	0FF24H
+OS_CREATE EQU	0FF27H
+OS_WRITE EQU	0FF2AH
+OS_CLOSE EQU	0FF2DH
+OS_DELETE EQU	0FF30H
+OS_RENAME EQU	0FF33H
+OS_DRIVE EQU	0FF4EH
+OS_RESOLVE EQU	0FF51H
+
+NSLOT	EQU	4
+SLOTS	EQU	0F800H		; NSLOT slots of SLOTSZ bytes
+SLOTSZ	EQU	184
+S_FCB	EQU	0		; word: the CP/M FCB's address, 0 = a free slot
+S_MODE	EQU	2		; 1 opened (reading), 2 made, 3 opened and written
+S_NREC	EQU	3		; word: the next record OS_READ gives (S_RFCB)
+S_PREC	EQU	5		; word: the record in S_PBUF, FFFFh = none
+S_CREC	EQU	7		; word: records written to the disk (S_WFCB)
+S_IDX	EQU	9		; '0'+ the slot's number (for AMPCTMPn.TMP)
+S_RFCB	EQU	10		; 16 bytes: the ampDOS FCB the file is read with
+S_WFCB	EQU	26		; 16 bytes: the ampDOS FCB the file is written with
+S_NAME	EQU	42		; 13 bytes: "NAME.EXT", 0
+S_PBUF	EQU	55		; 128 bytes: the record last written
+
+RBUF	EQU	0FB00H		; 128 bytes: a record being copied
+V_DMA	EQU	0FB80H		; word: where records are read to / written from
+V_FCB	EQU	0FB82H		; word: the CP/M FCB of this call
+V_SDRV	EQU	0FB84H		; the drive of the open files (1 = A, 2 = B)
+V_FDRV	EQU	0FB85H		; the drive of this file
+V_N	EQU	0FB86H		; word: a record number
+V_SRC	EQU	0FB88H		; word: where a record comes from
+V_K	EQU	0FB8AH		; word
+PATH	EQU	0FBA0H		; 16 bytes: "d:NAME.EXT", 0
+NAME2	EQU	0FBB0H		; 16 bytes: the new name of a rename
+TNAME	EQU	0FBC0H		; 16 bytes: "AMPCTMPn.TMP", 0
+
+FCB_R0	EQU	33		; in the CP/M FCB: the record number r0 r1 r2
+
+; ---------------------------------------------------------------- dispatch
+__bdos:	LD	A,C
+	CP	2
+	JR	Z,b_out
+	CP	1
+	JR	Z,b_in
+	CP	9
+	JR	Z,b_str
+	CP	11
+	JR	Z,b_st
+	IF	FILES
+	CP	26
+	JR	Z,b_dma
+	PUSH	IX		; the file functions: IX and IY are kept (the
+	PUSH	IY		; library's frame pointer and register locals)
+	LD	(V_FCB),DE
+	CALL	b_file
+	POP	IY
+	POP	IX
+	ELSE
+	LD	A,0FFH		; no file functions here
+	ENDIF
+b_ret:	LD	L,A
+	LD	H,0
+	RET
+
+b_out:	LD	A,E
+	JP	OS_PUTC
+b_in:	CALL	OS_GETC
+	CALL	OS_PUTC
+	CP	13		; Return: a new line on the screen too
+	JR	NZ,b_ret
+	LD	A,10
+	CALL	OS_PUTC
+	LD	A,13
+	JR	b_ret
+b_str:	LD	A,(DE)
+	CP	'$'
+	RET	Z
+	CALL	OS_PUTC
+	INC	DE
+	JR	b_str
+b_st:	CALL	OS_KBHIT
+	LD	A,0
+	JR	Z,b_ret
+	DEC	A
+	JR	b_ret
+	IF	FILES
+b_dma:	LD	(V_DMA),DE
+	XOR	A
+	JR	b_ret
+
+b_file:	CP	15
+	JP	Z,f_open
+	CP	16
+	JP	Z,f_close
+	CP	19
+	JP	Z,f_del
+	CP	22
+	JP	Z,f_make
+	CP	23
+	JP	Z,f_ren
+	CP	33
+	JP	Z,f_read
+	CP	34
+	JP	Z,f_write
+	CP	35
+	JP	Z,f_size
+fail:	LD	A,0FFH
+	RET
+
+; ---------------------------------------------------------------- slots
+findslot:			; IY = the slot of the FCB in V_FCB.  NZ = none
+	LD	DE,(V_FCB)
+	JR	fs_0
+freeslot:			; IY = a free slot.  NZ = none
+	LD	DE,0
+fs_0:	LD	IY,SLOTS
+	LD	B,NSLOT
+fs_1:	LD	A,(IY+S_FCB)
+	CP	E
+	JR	NZ,fs_2
+	LD	A,(IY+S_FCB+1)
+	CP	D
+	RET	Z
+fs_2:	PUSH	DE
+	LD	DE,SLOTSZ
+	ADD	IY,DE
+	POP	DE
+	DJNZ	fs_1
+	OR	1
+	RET
+
+anyopen:			; NZ = a slot is in use (IY kept)
+	LD	HL,SLOTS
+	LD	DE,SLOTSZ
+	LD	B,NSLOT
+ao_1:	LD	A,(HL)
+	INC	HL
+	OR	(HL)
+	DEC	HL
+	RET	NZ
+	ADD	HL,DE
+	DJNZ	ao_1
+	RET			; Z
+
+; ---------------------------------------------------------------- names
+mkname:				; HL = a CP/M FCB, DE = 16 bytes -> "d:NAME.EXT", 0
+	LD	A,(HL)		; its drive: 0 = the current one
+	OR	A
+	JR	NZ,mn_1
+	PUSH	HL
+	PUSH	DE
+	CALL	OS_DRIVE
+	POP	DE
+	POP	HL
+	INC	A
+mn_1:	LD	(V_FDRV),A
+	ADD	A,'A'-1
+	LD	(DE),A
+	INC	DE
+	LD	A,':'
+	LD	(DE),A
+	INC	DE
+	INC	HL
+	LD	B,8		; the name
+mn_2:	LD	A,(HL)
+	AND	7FH
+	CP	' '
+	JR	Z,mn_3
+	LD	(DE),A
+	INC	DE
+mn_3:	INC	HL
+	DJNZ	mn_2
+	LD	A,(HL)		; an extension?
+	AND	7FH
+	CP	' '
+	JR	Z,mn_6
+	LD	A,'.'
+	LD	(DE),A
+	INC	DE
+	LD	B,3
+mn_4:	LD	A,(HL)
+	AND	7FH
+	CP	' '
+	JR	Z,mn_5
+	LD	(DE),A
+	INC	DE
+mn_5:	INC	HL
+	DJNZ	mn_4
+mn_6:	XOR	A
+	LD	(DE),A
+	RET
+
+prep:				; the name of V_FCB -> HL = it, for OS_OPEN and the
+	LD	HL,(V_FCB)	; others.  With no file open, its drive and the
+	LD	DE,PATH		; directory there become the ones files are in;
+	CALL	mkname		; with files open it must be on their drive.
+	CALL	anyopen		; CF = it cannot be
+	JR	Z,pr_new
+	LD	A,(V_SDRV)
+	LD	B,A
+	LD	A,(V_FDRV)
+	CP	B
+	SCF
+	RET	NZ
+	LD	HL,PATH+2
+	OR	A
+	RET
+pr_new:	LD	A,(V_FDRV)
+	LD	(V_SDRV),A
+	LD	HL,PATH
+	JP	OS_RESOLVE	; HL = the name part
+
+ixr:	PUSH	IY		; IX = this slot's FCB for reading
+	POP	IX
+	LD	DE,S_RFCB
+	ADD	IX,DE
+	RET
+ixw:	PUSH	IY		; IX = this slot's FCB for writing
+	POP	IX
+	LD	DE,S_WFCB
+	ADD	IX,DE
+	RET
+
+; ---------------------------------------------------------------- open, make
+f_open:	LD	C,1
+	JR	om_0
+f_make:	LD	C,2
+om_0:	PUSH	BC
+	CALL	findslot	; (the same FCB again: that slot)
+	CALL	NZ,freeslot
+	POP	BC
+	JP	NZ,fail
+	PUSH	BC
+	CALL	prep
+	POP	BC
+	JP	C,fail
+	PUSH	HL		; HL = the name
+	LD	(IY+S_MODE),C
+	LD	A,C
+	CP	1
+	JR	NZ,om_mk
+	CALL	ixr
+	POP	HL
+	PUSH	HL
+	CALL	OS_OPEN
+	JR	om_1
+om_mk:	CALL	ixw
+	POP	HL
+	PUSH	HL
+	CALL	OS_CREATE
+om_1:	POP	HL
+	JP	C,fail
+	PUSH	IY		; the slot is this file's now
+	POP	DE
+	PUSH	HL
+	LD	HL,S_NAME
+	ADD	HL,DE
+	EX	DE,HL		; DE = S_NAME
+	POP	HL
+om_2:	LD	A,(HL)		; keep the name (to delete and rename it later)
+	LD	(DE),A
+	INC	HL
+	INC	DE
+	OR	A
+	JR	NZ,om_2
+	LD	HL,(V_FCB)
+	LD	(IY+S_FCB),L
+	LD	(IY+S_FCB+1),H
+	XOR	A
+	LD	(IY+S_NREC),A
+	LD	(IY+S_NREC+1),A
+	LD	(IY+S_CREC),A
+	LD	(IY+S_CREC+1),A
+	DEC	A
+	LD	(IY+S_PREC),A
+	LD	(IY+S_PREC+1),A
+	PUSH	IY		; S_IDX = '0' + (IY - SLOTS) / SLOTSZ
+	POP	HL
+	LD	DE,SLOTS
+	OR	A
+	SBC	HL,DE
+	LD	DE,SLOTSZ
+	LD	A,'0'
+om_3:	OR	A
+	SBC	HL,DE
+	JR	C,om_4
+	INC	A
+	JR	om_3
+om_4:	LD	(IY+S_IDX),A
+	XOR	A
+	RET
+
+; ---------------------------------------------------------------- close
+f_close:
+	CALL	findslot
+	LD	A,0
+	RET	NZ		; not open: nothing to do
+	LD	A,(IY+S_MODE)
+	CP	1
+	JR	Z,cl_free	; only read: nothing to write
+	CP	2
+	JR	Z,cl_w
+	LD	L,(IY+S_PREC)	; opened and written: the rest of the old file
+	LD	H,(IY+S_PREC+1)	; after the records written goes on too
+	INC	HL
+	LD	A,H
+	OR	L
+	JR	NZ,cl_k
+	LD	L,(IY+S_CREC)
+	LD	H,(IY+S_CREC+1)
+cl_k:	LD	(V_K),HL
+cl_c:	LD	HL,(V_K)
+	LD	DE,RBUF
+	CALL	rget
+	OR	A
+	JR	NZ,cl_w
+	LD	HL,(V_K)
+	LD	DE,RBUF
+	CALL	wput
+	OR	A
+	JR	NZ,cl_bad
+	LD	HL,(V_K)
+	INC	HL
+	LD	(V_K),HL
+	JR	cl_c
+cl_w:	CALL	final		; the last record, without its 1Ah padding
+	JR	C,cl_bad
+	CALL	ixw
+	CALL	OS_CLOSE
+	JR	C,cl_bad
+	LD	A,(IY+S_MODE)
+	CP	3
+	JR	NZ,cl_free
+	CALL	mktname		; the new file takes the old one's place
+	PUSH	IY
+	POP	HL
+	LD	DE,S_NAME
+	ADD	HL,DE
+	PUSH	HL
+	CALL	OS_DELETE
+	POP	DE
+	JR	C,cl_bad
+	LD	HL,TNAME
+	CALL	OS_RENAME
+	JR	C,cl_bad
+cl_free:
+	XOR	A
+	LD	(IY+S_FCB),A
+	LD	(IY+S_FCB+1),A
+	RET
+cl_bad:	XOR	A
+	LD	(IY+S_FCB),A
+	LD	(IY+S_FCB+1),A
+	JP	fail
+
+mktname:	LD	HL,m_tmp	; TNAME = "AMPCTMPn.TMP"
+	LD	DE,TNAME
+	LD	BC,13
+	LDIR
+	LD	A,(IY+S_IDX)
+	LD	(TNAME+7),A
+	RET
+m_tmp:	DB	'AMPCTMP0.TMP',0
+
+; ---------------------------------------------------------------- delete, rename
+f_del:	CALL	prep
+	JP	C,fail
+	CALL	OS_DELETE
+	JP	C,fail
+	XOR	A
+	RET
+
+f_ren:	LD	HL,(V_FCB)	; the new name: FCB+16 (its drive is the old one's)
+	LD	DE,16
+	ADD	HL,DE
+	LD	DE,NAME2
+	CALL	mkname
+	CALL	prep		; the old one
+	JP	C,fail
+	LD	DE,NAME2+2
+	CALL	OS_RENAME
+	JP	C,fail
+	XOR	A
+	RET
+
+; ---------------------------------------------------------------- read, write
+recno:	LD	HL,(V_FCB)	; HL = the record number r0 r1 of V_FCB
+	LD	DE,FCB_R0
+	ADD	HL,DE
+	LD	E,(HL)
+	INC	HL
+	LD	D,(HL)
+	EX	DE,HL
+	RET
+
+f_read:	CALL	findslot
+	LD	A,1
+	RET	NZ
+	CALL	recno
+	LD	A,(IY+S_MODE)
+	CP	1
+	JR	Z,rd_old
+	LD	E,(IY+S_PREC)	; written to: the record kept here?
+	LD	D,(IY+S_PREC+1)
+	OR	A
+	SBC	HL,DE
+	JR	Z,rd_pb
+	ADD	HL,DE
+	LD	A,(IY+S_MODE)
+	CP	2
+	LD	A,1		; a made file: nothing else can be read
+	RET	Z
+	LD	E,(IY+S_CREC)	; opened and written: records before the ones
+	LD	D,(IY+S_CREC+1)	; written cannot be read any more
+	LD	A,(IY+S_PREC)
+	AND	(IY+S_PREC+1)
+	INC	A
+	JR	Z,rd_c
+	LD	E,(IY+S_PREC)
+	LD	D,(IY+S_PREC+1)
+rd_c:	PUSH	HL
+	OR	A
+	SBC	HL,DE
+	POP	HL
+	LD	A,1
+	RET	C
+	JR	Z,rd_c1		; (n = crec with nothing kept: from the old file)
+rd_c1:
+rd_old:	LD	DE,(V_DMA)
+	JP	rget
+rd_pb:	PUSH	IY		; S_PBUF -> DMA
+	POP	HL
+	LD	DE,S_PBUF
+	ADD	HL,DE
+	LD	DE,(V_DMA)
+	LD	BC,128
+	LDIR
+	XOR	A
+	RET
+
+f_write:
+	CALL	findslot
+	LD	A,2
+	RET	NZ
+	LD	A,(IY+S_MODE)
+	CP	1
+	JR	NZ,wr_1
+	CALL	mktname		; opened: from now on a new file is written
+	CALL	ixw
+	LD	HL,TNAME
+	CALL	OS_CREATE
+	LD	A,2
+	RET	C
+	LD	(IY+S_MODE),3
+wr_1:	CALL	recno
+	LD	DE,(V_DMA)
+	JP	wput
+
+rget:				; record HL of the old file -> DE (128 bytes, 1Ah
+	LD	(V_N),HL	; after the end).  A = 0, or 1 = past the end
+	LD	(V_SRC),DE
+	CALL	ixr
+	LD	E,(IY+S_NREC)
+	LD	D,(IY+S_NREC+1)
+	OR	A
+	SBC	HL,DE
+	JR	NC,rg_1
+	XOR	A		; an earlier one: back to the start of the file
+	LD	(IX+6),A	; FCB_POS = 0
+	LD	(IX+7),A
+	LD	(IX+8),A
+	LD	(IX+9),A
+	LD	A,(IX+0)	; FCB_CLUS = FCB_FIRST
+	LD	(IX+10),A
+	LD	A,(IX+1)
+	LD	(IX+11),A
+	XOR	A
+	LD	(IY+S_NREC),A
+	LD	(IY+S_NREC+1),A
+rg_1:	LD	L,(IY+S_NREC)	; up to it
+	LD	H,(IY+S_NREC+1)
+	LD	DE,(V_N)
+	OR	A
+	SBC	HL,DE
+	JR	NC,rg_2
+	CALL	rg_rd
+	OR	A
+	RET	NZ
+	JR	rg_1
+rg_2:	CALL	rg_rd		; and it
+	OR	A
+	RET	NZ
+	LD	A,B		; a short one: 1Ah after its bytes
+	OR	C
+	CP	128
+	JR	Z,rg_ok
+	LD	HL,(V_SRC)
+	ADD	HL,BC
+	LD	A,128
+	SUB	C
+	LD	B,A
+rg_pad:	LD	(HL),1AH
+	INC	HL
+	DJNZ	rg_pad
+rg_ok:	XOR	A
+	RET
+rg_rd:	LD	DE,(V_SRC)	; the next 128 bytes -> V_SRC.  BC = how many;
+	LD	BC,128		; A = 1 at the end of the file
+	CALL	OS_READ
+	LD	A,1
+	RET	C
+	LD	A,B
+	OR	C
+	LD	A,1
+	RET	Z
+	INC	(IY+S_NREC)
+	JR	NZ,rg_r1
+	INC	(IY+S_NREC+1)
+rg_r1:	XOR	A
+	RET
+
+wput:				; record HL <- 128 bytes at DE.  A = 0, or 2 = cannot
+	LD	(V_N),HL
+	LD	(V_SRC),DE
+	LD	A,(IY+S_PREC)	; a record kept here?
+	AND	(IY+S_PREC+1)
+	INC	A
+	JR	Z,wp_gap
+	LD	E,(IY+S_PREC)
+	LD	D,(IY+S_PREC+1)
+	OR	A
+	SBC	HL,DE
+	JR	Z,wp_set	; the same one again
+	LD	A,2
+	RET	C		; an earlier one: not possible
+	CALL	commit		; the kept one goes to the disk
+	LD	A,2
+	RET	C
+wp_gap:	LD	L,(IY+S_CREC)	; records before it that are not written yet
+	LD	H,(IY+S_CREC+1)
+	LD	DE,(V_N)
+	OR	A
+	SBC	HL,DE
+	JR	Z,wp_set
+	LD	A,2
+	RET	NC		; already written: not possible
+	CALL	pbuf		; from the old file (or zeros) through S_PBUF
+	LD	B,128
+wp_z:	LD	(HL),0
+	INC	HL
+	DJNZ	wp_z
+	LD	A,(IY+S_MODE)
+	CP	3
+	JR	NZ,wp_g1
+	LD	HL,(V_N)
+	PUSH	HL
+	LD	HL,(V_SRC)
+	PUSH	HL
+	LD	L,(IY+S_CREC)
+	LD	H,(IY+S_CREC+1)
+	CALL	pbuf
+	EX	DE,HL
+	LD	L,(IY+S_CREC)
+	LD	H,(IY+S_CREC+1)
+	CALL	rget
+	POP	HL
+	LD	(V_SRC),HL
+	POP	HL
+	LD	(V_N),HL
+wp_g1:	LD	L,(IY+S_CREC)
+	LD	H,(IY+S_CREC+1)
+	LD	(IY+S_PREC),L
+	LD	(IY+S_PREC+1),H
+	CALL	commit
+	LD	A,2
+	RET	C
+	JR	wp_gap
+wp_set:	LD	HL,(V_N)	; this one is kept here now
+	LD	(IY+S_PREC),L
+	LD	(IY+S_PREC+1),H
+	CALL	pbuf
+	EX	DE,HL
+	LD	HL,(V_SRC)
+	LD	BC,128
+	LDIR
+	XOR	A
+	RET
+
+pbuf:	PUSH	IY		; HL = S_PBUF (DE kept)
+	POP	HL
+	PUSH	DE
+	LD	DE,S_PBUF
+	ADD	HL,DE
+	POP	DE
+	RET
+
+commit:				; S_PBUF (128 bytes) to the disk.  CF = failed
+	LD	BC,128
+cm_w:	CALL	ixw
+	CALL	pbuf
+	EX	DE,HL
+	CALL	OS_WRITE
+	RET	C
+	LD	L,(IY+S_CREC)
+	LD	H,(IY+S_CREC+1)
+	INC	HL
+	LD	(IY+S_CREC),L
+	LD	(IY+S_CREC+1),H
+	LD	A,0FFH
+	LD	(IY+S_PREC),A
+	LD	(IY+S_PREC+1),A
+	OR	A
+	RET
+
+final:				; the kept record, without 1Ah at its end.  CF = failed
+	LD	A,(IY+S_PREC)
+	AND	(IY+S_PREC+1)
+	INC	A
+	RET	Z		; (none: nothing to do, NC)
+	CALL	pbuf
+	LD	DE,127
+	ADD	HL,DE
+	LD	B,128
+fi_1:	LD	A,(HL)
+	CP	1AH
+	JR	NZ,fi_2
+	DEC	HL
+	DJNZ	fi_1
+fi_2:	LD	C,B		; BC = the bytes before the padding
+	LD	B,0
+	LD	A,C
+	OR	A
+	JR	NZ,cm_w
+	LD	A,0FFH		; all padding: nothing to write
+	LD	(IY+S_PREC),A
+	LD	(IY+S_PREC+1),A
+	OR	A
+	RET
+
+; ---------------------------------------------------------------- size
+f_size:	CALL	findslot
+	LD	HL,0
+	JR	NZ,sz_set
+	LD	A,(IY+S_MODE)	; the old file's records: ceil(size / 128)
+	CP	2
+	JR	Z,sz_w
+	LD	L,(IY+S_RFCB+2)
+	LD	H,(IY+S_RFCB+3)
+	LD	A,(IY+S_RFCB+4)
+	LD	DE,127
+	ADD	HL,DE
+	ADC	A,0
+	LD	B,7
+sz_sh:	SRL	A
+	RR	H
+	RR	L
+	DJNZ	sz_sh
+	LD	A,(IY+S_MODE)
+	CP	1
+	JR	Z,sz_set
+	PUSH	HL		; opened and written: the larger
+	CALL	sz_wr
+	POP	DE
+	PUSH	HL
+	OR	A
+	SBC	HL,DE
+	POP	HL
+	JR	NC,sz_set
+	EX	DE,HL
+	JR	sz_set
+sz_w:	CALL	sz_wr
+sz_set:	EX	DE,HL		; r0 r1 = HL, r2 = 0
+	LD	HL,(V_FCB)
+	LD	BC,FCB_R0
+	ADD	HL,BC
+	LD	(HL),E
+	INC	HL
+	LD	(HL),D
+	INC	HL
+	LD	(HL),0
+	XOR	A
+	RET
+sz_wr:	LD	L,(IY+S_PREC)	; HL = the records of the file being written
+	LD	H,(IY+S_PREC+1)
+	LD	A,H
+	AND	L
+	INC	A
+	JR	Z,sz_w1
+	INC	HL
+	RET
+sz_w1:	LD	L,(IY+S_CREC)
+	LD	H,(IY+S_CREC+1)
+	RET
+
+	ENDIF			; FILES
+
+	END

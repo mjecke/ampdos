@@ -1,0 +1,22 @@
+; oskbhit.mac - int os_kbhit(void): 1 when a key is waiting, else 0 (the key
+; stays there: getchar() then gets it).
+	.Z80
+	CSEG
+	PUBLIC	_os_kbhit
+OS_KBHIT EQU	0FF09H
+
+_os_kbhit:
+	PUSH	BC
+	PUSH	DE
+	PUSH	IX
+	PUSH	IY
+	CALL	OS_KBHIT
+	LD	HL,0
+	JR	Z,kb_1
+	INC	HL
+kb_1:	POP	IY
+	POP	IX
+	POP	DE
+	POP	BC
+	RET
+	END

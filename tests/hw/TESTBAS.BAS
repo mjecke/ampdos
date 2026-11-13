@@ -1,0 +1,11 @@
+10 PRINT "BASIC: running TESTBAS"
+20 FOR I=1 TO 5: PRINT I;: NEXT I: PRINT
+30 PRINT "BASIC: free bytes";FRE(0)
+40 DOS "VER"
+50 DOS "WC TESTBAS.BAS"
+60 DOS "IF EXIST TESTBAS.BAS ECHO look: IF works from BASIC"
+70 DOS "SLEEP 0.5"
+75 PRINT "BASIC: FDISK must now be refused:"
+80 DOS "FDISK"
+90 PRINT "BASIC: back to the batch file"
+100 DOS

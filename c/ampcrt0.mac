@@ -1,0 +1,148 @@
+; ampcrt0.mac - uc80 start-up for ampDOS (link with ul80 -p 8000 --bin)
+;
+; ampDOS loads a .BIN at 8000h and CALLs it with HL = the rest of the
+; command line.  uc80's library talks to "CP/M": CALL 5 with C = a BDOS
+; function, and its exit is JP 0.  So, for as long as the program runs:
+;   0005h  JP BDOSJP     (bytes 0004-0007 of ampDOS are unused padding)
+;   0000h  JP __amp_exit (ampDOS's reset entry: put back at the end)
+;   BDOSJP JP __bdos     at F7FDh, so (6) holds the top of the program's
+;                        memory as CP/M programs expect; SP starts there.
+;                        F800-FBFC above it is ampbdos.mac's (open files),
+;                        zeroed here.  Assembled with FILES = 0 (no files:
+;                        see ampbdos.mac) the stub is at FBFDh instead.  main(argc, argv) gets the command line split
+; at spaces (argv[0] = "", ampDOS does not pass the program's name).
+	.Z80
+	CSEG
+	PUBLIC	__start
+	PUBLIC	__amp_exit
+	EXTRN	_main
+	EXTRN	__exit_hook
+	EXTRN	__bss_start
+	EXTRN	__bss_end
+	EXTRN	__bdos
+
+OS_STATUS EQU	0FF60H
+	IFNDEF	FILES
+FILES	EQU	1
+	ENDIF
+	IF	FILES
+BDOSJP	EQU	0F7FDH
+SHIM	EQU	0F800H		; F800-FBFC: ampbdos.mac's memory (open files)
+	ELSE
+BDOSJP	EQU	0FBFDH		; (FILES = 0: no file memory, the program gets it)
+	ENDIF
+
+__start:
+	LD	DE,amp_line		; keep the command line (128 bytes at most)
+	LD	B,127
+amp_cp:	LD	A,(HL)
+	LD	(DE),A
+	OR	A
+	JR	Z,amp_cp2
+	INC	HL
+	INC	DE
+	DJNZ	amp_cp
+	XOR	A
+	LD	(DE),A
+amp_cp2:
+	LD	(amp_sp),SP
+	LD	HL,(0)			; keep ampDOS's bytes 0000-0002
+	LD	(amp_z0),HL
+	LD	A,(2)
+	LD	(amp_z0+2),A
+	LD	A,0C3H			; JP __amp_exit at 0, JP BDOSJP at 5
+	LD	(0),A
+	LD	(5),A
+	LD	(BDOSJP),A
+	LD	HL,__amp_exit
+	LD	(1),HL
+	LD	HL,BDOSJP
+	LD	(6),HL
+	LD	HL,__bdos
+	LD	(BDOSJP+1),HL
+	LD	SP,BDOSJP
+	IF	FILES
+	LD	HL,SHIM			; ampbdos.mac's memory: zeros
+	LD	DE,SHIM+1
+	LD	BC,0FBFCH-SHIM
+	LD	(HL),0
+	LDIR
+	ENDIF
+
+	LD	HL,__bss_start		; zero the BSS
+	LD	BC,__bss_end-__bss_start
+amp_bz:	LD	A,B
+	OR	C
+	JR	Z,amp_bd
+	LD	(HL),0
+	INC	HL
+	DEC	BC
+	JR	amp_bz
+amp_bd:
+
+	LD	HL,amp_null		; argv[0] = ""
+	LD	(amp_argv),HL
+	LD	IX,amp_argv+2
+	LD	BC,1			; BC = argc
+	LD	HL,amp_line
+amp_w:	LD	A,(HL)			; skip spaces
+	CP	' '
+	JR	NZ,amp_w1
+	INC	HL
+	JR	amp_w
+amp_w1:	OR	A
+	JR	Z,amp_go
+	LD	A,C
+	CP	16			; 15 arguments at most
+	JR	NC,amp_go
+	LD	(IX+0),L		; argv[argc] = here
+	LD	(IX+1),H
+	INC	IX
+	INC	IX
+	INC	BC
+amp_w2:	LD	A,(HL)			; to its end
+	OR	A
+	JR	Z,amp_go
+	CP	' '
+	JR	Z,amp_w3
+	INC	HL
+	JR	amp_w2
+amp_w3:	LD	(HL),0
+	INC	HL
+	JR	amp_w
+amp_go:	LD	HL,0			; argv[argc] = NULL
+	LD	(IX+0),L
+	LD	(IX+1),H
+	LD	HL,amp_argv
+	PUSH	HL
+	PUSH	BC
+	CALL	_main
+	LD	A,L			; main's value: the exit status
+	LD	(amp_st),A
+	LD	HL,(__exit_hook)	; atexit handlers and open files, as
+	JP	(HL)			; uc80's crt0 does; they end with JP 0
+
+__amp_exit:				; exit(), abort(), JP 0: back to ampDOS
+	LD	SP,(amp_sp)
+	LD	HL,(amp_z0)		; ampDOS's own bytes again
+	LD	(0),HL
+	LD	A,(amp_z0+2)
+	LD	(2),A
+	XOR	A
+	LD	(5),A
+	LD	(6),A
+	LD	(7),A
+	LD	A,(amp_st)
+	OR	A
+	CALL	NZ,OS_STATUS		; non-zero: a batch file's ERRORLEVEL
+	RET
+
+				; (in CSEG: the program is in RAM, and uc80 embeds only
+				; the start-up's code)
+amp_sp:	DW	0
+amp_z0:	DB	0,0,0
+amp_st:	DB	0
+amp_null: DB	0
+amp_argv: DS	34
+amp_line: DS	128
+	END	__start

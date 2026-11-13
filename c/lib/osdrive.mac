@@ -1,0 +1,20 @@
+; osdrive.mac - int os_drive(void): the current drive, 0 = A, 1 = B.
+	.Z80
+	CSEG
+	PUBLIC	_os_drive
+OS_DRIVE EQU	0FF4EH
+
+_os_drive:
+	PUSH	BC
+	PUSH	DE
+	PUSH	IX
+	PUSH	IY
+	CALL	OS_DRIVE
+	LD	L,A
+	LD	H,0
+	POP	IY
+	POP	IX
+	POP	DE
+	POP	BC
+	RET
+	END

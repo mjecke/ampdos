@@ -1,0 +1,21 @@
+; osgetc.mac - int os_getc(void): wait for a key and return it, without
+; showing it (getchar() shows it: CP/M's console input echoes).
+	.Z80
+	CSEG
+	PUBLIC	_os_getc
+OS_GETC	EQU	0FF06H
+
+_os_getc:
+	PUSH	BC
+	PUSH	DE
+	PUSH	IX
+	PUSH	IY
+	CALL	OS_GETC
+	LD	L,A
+	LD	H,0
+	POP	IY
+	POP	IX
+	POP	DE
+	POP	BC
+	RET
+	END

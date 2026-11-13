@@ -1,0 +1,62 @@
+; system.mac - int system(const char *command): one built-in ampDOS command
+; (SLEEP 2, CLEAR, DIR B:, COPY A.TXT B: ...) run with OS_EXEC.  0, or -1 when
+; the shell refuses it (a .BIN program, FDISK, an unknown command).
+; system(NULL) is 1: there is a command processor.  The line is copied
+; (the shell may change it) and OS_EXEC gets 512 bytes, both from below the
+; stack for the length of the call.  Replaces uc80's system(), which fails.
+	.Z80
+	CSEG
+	PUBLIC	_system
+OS_EXEC	EQU	0FF57H
+ROOM	EQU	128+512+16		; the line, OS_EXEC's memory, and spare
+
+_system:
+	LD	HL,2
+	ADD	HL,SP
+	LD	A,(HL)
+	INC	HL
+	LD	H,(HL)
+	LD	L,A			; HL = the command
+	OR	H
+	JR	NZ,sy_1
+	LD	HL,1			; system(NULL)
+	RET
+sy_1:	PUSH	BC
+	PUSH	DE
+	PUSH	IX
+	PUSH	IY
+	LD	(sy_sp),SP
+	EX	DE,HL			; DE = the command
+	LD	HL,-ROOM
+	ADD	HL,SP
+	LD	SP,HL			; HL = SP = the room (the stack goes on below it)
+	PUSH	HL
+	LD	B,127			; the line: 127 characters at most
+sy_cp:	LD	A,(DE)
+	LD	(HL),A
+	OR	A
+	JR	Z,sy_2
+	INC	HL
+	INC	DE
+	DJNZ	sy_cp
+	LD	(HL),0
+sy_2:	POP	HL			; HL = the line
+	LD	DE,128
+	EX	DE,HL
+	ADD	HL,DE
+	EX	DE,HL			; DE = the 512 bytes after it
+	LD	BC,512
+	CALL	OS_EXEC
+	LD	HL,0
+	JR	NC,sy_3
+	DEC	HL			; -1: refused
+sy_3:	LD	SP,(sy_sp)
+	POP	IY
+	POP	IX
+	POP	DE
+	POP	BC
+	RET
+
+	DSEG
+sy_sp:	DW	0
+	END

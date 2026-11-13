@@ -1,0 +1,27 @@
+; osscreen.mac - int os_screen(int action): OS_SCREEN with the codes SETUP
+; saved.  0 clear the screen (cursor home), 1 cursor home, 2 erase to the
+; end of the line, 3 to the end of the screen, 4 up, 5 down, 6 right,
+; 7 left.  0, or -1 when this terminal cannot (0 always can).
+	.Z80
+	CSEG
+	PUBLIC	_os_screen
+OS_SCREEN EQU	0FF63H
+
+_os_screen:
+	LD	HL,2
+	ADD	HL,SP
+	LD	A,(HL)
+	PUSH	BC
+	PUSH	DE
+	PUSH	IX
+	PUSH	IY
+	CALL	OS_SCREEN
+	LD	HL,0
+	JR	NC,os_1
+	DEC	HL
+os_1:	POP	IY
+	POP	IX
+	POP	DE
+	POP	BC
+	RET
+	END

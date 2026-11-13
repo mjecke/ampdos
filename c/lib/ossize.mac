@@ -1,0 +1,50 @@
+; ossize.mac - the screen's size, as SETUP found it (SCREEN ROWS / COLS / WRAP):
+;   int os_rows(void), int os_cols(void), int os_wrap(void), int os_flags(void)
+; os_flags() is SCREEN WRAP's flags: 1 the terminal goes to the next line by
+; itself after the last column (a full-width line then needs no CR LF), 2 its
+; EOL erases the whole line, 4 its EOS erases from the line's start.
+; os_wrap() is flag 1 alone.  ampDOS before 0.8.6
+; has no OS_SCREEN 8: 24, 80 and 0 then.
+	.Z80
+	CSEG
+	PUBLIC	_os_rows
+	PUBLIC	_os_cols
+	PUBLIC	_os_wrap
+	PUBLIC	_os_flags
+OS_SCREEN EQU	0FF63H
+
+_os_rows:
+	CALL	sz_get
+	LD	H,0
+	RET
+_os_cols:
+	CALL	sz_get
+	LD	L,H
+	LD	H,0
+	RET
+_os_wrap:
+	CALL	sz_get
+	AND	1
+	LD	L,A
+	LD	H,0
+	RET
+_os_flags:
+	CALL	sz_get
+	LD	L,A
+	LD	H,0
+	RET
+sz_get:	PUSH	BC		; L = rows, H = columns, A = wrap
+	PUSH	DE
+	PUSH	IX
+	PUSH	IY
+	LD	A,8
+	CALL	OS_SCREEN
+	JR	NC,sz_1
+	LD	HL,80*256+24
+	XOR	A
+sz_1:	POP	IY
+	POP	IX
+	POP	DE
+	POP	BC
+	RET
+	END
