@@ -13,16 +13,10 @@ and new programs on the real hardware.
 
 See COMMANDS.MD for comprehensive documentation of what all ampDOS can do.
 
-```
-                      o.OOOo.    .oOOOo.  .oOOOo.
-                       O    `o  .O     o. o      `
-                       O      o o       O  `OOoo.
-.oOoO' `oOOoOO. .oOo.  o      O O       o       `O
-O   o   O  o  o O   o  o    .O' `o     O' O.    .O
-`OoO'o  O  o  o oOoO'  OooOO'    `OoooO'   `oooO'
-                O
-                o'
-```
+Booting on a real AMPRO LittleBoard Plus attached to a serial terminal console:
+<p align="center" width="100%">
+<video src="https://github.com/user-attachments/assets/92d6fe19-a442-4a1a-ad2d-e5bf37487517" width="70%" controls></video>
+</p>
 ## Try it
 
 You need:
